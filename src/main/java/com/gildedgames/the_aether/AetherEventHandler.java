@@ -1,19 +1,29 @@
 package com.gildedgames.the_aether;
 
 import com.gildedgames.the_aether.api.player.IPlayerAether;
+import com.gildedgames.the_aether.blocks.BlocksAether;
+import com.gildedgames.the_aether.blocks.portal.BlockAetherPortal;
+import com.gildedgames.the_aether.entities.EntitiesAether;
+import com.gildedgames.the_aether.entities.bosses.EntityValkyrie;
 import com.gildedgames.the_aether.entities.passive.mountable.EntityAerbunny;
+import com.gildedgames.the_aether.entities.passive.mountable.EntityFlyingCow;
+import com.gildedgames.the_aether.items.ItemsAether;
+import com.gildedgames.the_aether.items.dungeon.ItemDungeonKey;
+import com.gildedgames.the_aether.items.util.EnumSkyrootBucketType;
+import com.gildedgames.the_aether.items.weapons.ItemSkyrootSword;
 import com.gildedgames.the_aether.network.AetherNetwork;
 import com.gildedgames.the_aether.network.packets.PacketSendEternalDay;
 import com.gildedgames.the_aether.network.packets.PacketSendShouldCycle;
 import com.gildedgames.the_aether.player.PlayerAether;
+import com.gildedgames.the_aether.registry.achievements.AchievementsAether;
 import com.gildedgames.the_aether.world.AetherData;
 import com.gildedgames.the_aether.world.AetherWorldProvider;
 import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.ObfuscationReflectionHelper;
-import cpw.mods.fml.common.gameevent.InputEvent;
-import cpw.mods.fml.common.gameevent.PlayerEvent;
+import cpw.mods.fml.common.eventhandler.Event;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent.ItemCraftedEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
-import net.minecraft.client.Minecraft;
+import cpw.mods.fml.relauncher.Side;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityAgeable;
@@ -23,40 +33,22 @@ import net.minecraft.entity.boss.EntityWither;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.passive.EntityCow;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.*;
+import net.minecraft.util.EntityDamageSource;
+import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.MovingObjectPosition.MovingObjectType;
 import net.minecraft.world.World;
-import net.minecraft.world.WorldProvider;
 import net.minecraft.world.WorldServer;
 import net.minecraftforge.event.entity.EntityStruckByLightningEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.player.*;
-
-import com.gildedgames.the_aether.blocks.BlocksAether;
-import com.gildedgames.the_aether.blocks.portal.BlockAetherPortal;
-import com.gildedgames.the_aether.entities.EntitiesAether;
-import com.gildedgames.the_aether.entities.bosses.EntityValkyrie;
-import com.gildedgames.the_aether.entities.passive.mountable.EntityFlyingCow;
-import com.gildedgames.the_aether.items.ItemsAether;
-import com.gildedgames.the_aether.items.dungeon.ItemDungeonKey;
-import com.gildedgames.the_aether.items.util.EnumSkyrootBucketType;
-import com.gildedgames.the_aether.items.weapons.ItemSkyrootSword;
-import com.gildedgames.the_aether.registry.achievements.AchievementsAether;
-
-import cpw.mods.fml.common.eventhandler.Event;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.PlayerEvent.ItemCraftedEvent;
-import net.minecraftforge.event.world.WorldEvent;
 
 import java.util.Random;
 
@@ -321,40 +313,37 @@ AetherEventHandler {
 		return stackID == ItemsAether.gravitite_shovel || stackID == ItemsAether.gravitite_axe || stackID == ItemsAether.gravitite_pickaxe;
 	}
 
-	@SubscribeEvent
-	public void onWorldTick(TickEvent.WorldTickEvent event)
-	{
-		if (!event.world.isRemote)
-		{
-			AetherData data = AetherData.getInstance(event.world);
+    @SubscribeEvent
+    public void onWorldTick(TickEvent.WorldTickEvent event) {
+        if (event.side == Side.SERVER && event.phase == TickEvent.Phase.START) {
+            if (event.world.provider instanceof AetherWorldProvider) {
+                AetherWorldProvider providerAether = (AetherWorldProvider) event.world.provider;
+                AetherData data = AetherData.getInstance(event.world);
 
-			WorldProvider provider = event.world.provider;
+                providerAether.setIsEternalDay(data.isEternalDay());
+                providerAether.setShouldCycleCatchup(data.isShouldCycleCatchup());
 
-			if (provider instanceof AetherWorldProvider)
-			{
-				AetherWorldProvider providerAether = (AetherWorldProvider) provider;
+                AetherNetwork.sendToAll(new PacketSendEternalDay(providerAether.getIsEternalDay()));
+                AetherNetwork.sendToAll(new PacketSendShouldCycle(providerAether.getShouldCycleCatchup()));
+            }
+        }
+    }
 
-				providerAether.setIsEternalDay(data.isEternalDay());
-				AetherNetwork.sendToAll(new PacketSendEternalDay(providerAether.getIsEternalDay()));
+    @SubscribeEvent
+    public void onEntityTick(TickEvent.WorldTickEvent event) {
+        if (event.side == Side.SERVER && event.phase == TickEvent.Phase.START) {
+            for (Object entity : event.world.loadedEntityList) {
+                if (entity instanceof EntityItem) {
+                    EntityItem entityItem = (EntityItem) entity;
 
-				providerAether.setShouldCycleCatchup(data.isShouldCycleCatchup());
-				AetherNetwork.sendToAll(new PacketSendShouldCycle(providerAether.getShouldCycleCatchup()));
-			}
-		}
-
-		for (Object entity : event.world.loadedEntityList)
-		{
-			if (entity instanceof EntityItem)
-			{
-				EntityItem entityItem = (EntityItem) entity;
-
-				if (entityItem.getEntityItem().getItem() == ItemsAether.dungeon_key)
-				{
-					ObfuscationReflectionHelper.setPrivateValue(Entity.class, entityItem, true, "invulnerable", "field_83001_bt");
-				}
-			}
-		}
-	}
+                    if (entityItem.getEntityItem().getItem() == ItemsAether.dungeon_key) {
+                        NBTTagCompound nbt = entityItem.getEntityData();
+                        nbt.setBoolean("Invulnerable", true);
+                    }
+                }
+            }
+        }
+    }
 
 	@SubscribeEvent
 	public void onPlayerSleepInBed(PlayerWakeUpEvent event)
